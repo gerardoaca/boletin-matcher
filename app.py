@@ -18,7 +18,7 @@ from core.ocr import (
     herramientas_ocr_disponibles,
 )
 
-load_dotenv()
+load_dotenv(override=True)
 
 st.set_page_config(page_title="Boletines Judiciales — Coincidencias", layout="wide")
 st.title("Buscador de coincidencias en boletines judiciales")
