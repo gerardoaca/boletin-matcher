@@ -84,13 +84,6 @@ def generar_md(
             lines.append(f"- **Hash bloque:** `{_hash_bloque(c.bloque_texto)}`")
             lines.append(f"- **Fila listado:** {c.fila_listado}")
             lines.append("")
-            lines.append("<details><summary>Texto literal del bloque</summary>")
-            lines.append("")
-            lines.append("```")
-            lines.append(c.bloque_texto)
-            lines.append("```")
-            lines.append("</details>")
-            lines.append("")
 
     if revision:
         lines.append("---")
