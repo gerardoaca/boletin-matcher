@@ -122,12 +122,16 @@ def buscar_coincidencias(
                         c.ruta_validacion = "B_juzgado"
                         c.motivo = "Actor reservado/genérico: match expediente + juzgado"
                         validadas.append(c)
-                    else:
-                        c.motivo = (
-                            "Actor reservado/genérico, juzgado del listado NO aparece "
-                            "en la sección/encabezados de la hoja"
-                        )
-                        revision.append(c)
+                        continue
+                    # Si el cliente NO está en el bloque del expediente, descartar
+                    # silenciosamente: es otra sucesión homónima.
+                    if not cliente_en_bloque:
+                        continue
+                    c.motivo = (
+                        "Actor reservado/genérico, juzgado del listado NO aparece "
+                        "en la sección/encabezados de la hoja"
+                    )
+                    revision.append(c)
                     continue
 
                 if juzgado_match:

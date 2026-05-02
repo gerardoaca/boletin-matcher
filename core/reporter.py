@@ -40,6 +40,9 @@ def generar_md(
             lines.append(f"- **Cliente asignado:** {c.cliente or '(sin asignar)'}")
             if item.get("tipo_acuerdo"):
                 lines.append(f"- **Tipo de acuerdo:** {item['tipo_acuerdo']}")
+            if item.get("entrada_literal"):
+                lines.append(f"- **Entrada literal del expediente:**")
+                lines.append(f"  > {item['entrada_literal']}")
             lines.append(f"- **Síntesis del asunto:** {item['sintesis']}")
             lines.append(f"- **Ruta de validación:** {c.ruta_validacion} — {c.motivo}")
             lines.append(f"- **Confianza IA:** {item['confianza']}")

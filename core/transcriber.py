@@ -8,13 +8,15 @@ MODEL = "claude-haiku-4-5"
 
 PROMPT_SISTEMA = """Eres un asistente legal que extrae información literal de bloques de boletines judiciales mexicanos. NUNCA inventes datos. Si un dato no aparece, devuelve cadena vacía.
 
-Te paso un bloque de texto de una hoja del boletín y debes devolver JSON con:
-- "juzgado": el órgano jurisdiccional ante el cual se ventila el asunto, tal como aparece literalmente
-- "sintesis": síntesis literal o lo más cercano a literal del asunto/acuerdo/notificación contenido en el bloque (máx 400 caracteres, sin reformular más allá de quitar saltos de línea)
-- "tipo_acuerdo": tipo de acuerdo o notificación si aparece (ej. "AUTO", "SENTENCIA", "EMPLAZAMIENTO"), vacío si no
-- "confianza": "alta" si todos los datos están claros, "media" si hay ambigüedad, "baja" si el bloque es ilegible
+Te paso un bloque de texto que contiene MÚLTIPLES entradas del boletín y un EXPEDIENTE OBJETIVO. Debes localizar EXACTAMENTE la entrada que contiene ese expediente (no otras) y devolver JSON con:
 
-Devuelve SOLO el JSON, sin texto adicional."""
+- "entrada_literal": la entrada COMPLETA tal como aparece en el bloque, comenzando desde el nombre del actor hasta el "Acdo." / "Sent." / terminador. SOLO la entrada que contiene el expediente objetivo.
+- "juzgado": el órgano jurisdiccional ante el cual se ventila el asunto, tal como aparece literalmente. Vacío si no aparece.
+- "sintesis": resumen MUY breve (máx 200 chars) de la entrada del expediente objetivo.
+- "tipo_acuerdo": tipo de acuerdo (ej. "AUTO", "SENTENCIA", "EMPLAZAMIENTO", "AUDIENCIA"), vacío si no.
+- "confianza": "alta" si encontraste la entrada exacta del expediente; "media" si hay ambigüedad; "baja" si el expediente no aparece en el bloque.
+
+Devuelve SOLO el JSON, sin texto adicional ni markdown."""
 
 
 def _client() -> Anthropic:
@@ -34,16 +36,19 @@ def _client() -> Anthropic:
     return Anthropic(api_key=key)
 
 
-def transcribir_bloque(bloque: str) -> dict:
+def transcribir_bloque(bloque: str, expediente: str = "") -> dict:
     client = _client()
+    user_msg = (
+        f"EXPEDIENTE OBJETIVO: {expediente}\n\n"
+        f"BLOQUE DEL BOLETÍN:\n\n{bloque}"
+    ) if expediente else f"Bloque del boletín:\n\n{bloque}"
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=600,
+        max_tokens=900,
         system=PROMPT_SISTEMA,
-        messages=[{"role": "user", "content": f"Bloque del boletín:\n\n{bloque}"}],
+        messages=[{"role": "user", "content": user_msg}],
     )
     raw = resp.content[0].text.strip()
-    # Limpiar code fences si vinieran
     if raw.startswith("```"):
         raw = raw.strip("`")
         if raw.startswith("json"):
@@ -52,8 +57,9 @@ def transcribir_bloque(bloque: str) -> dict:
         return json.loads(raw)
     except json.JSONDecodeError:
         return {
+            "entrada_literal": bloque[:500],
             "juzgado": "",
-            "sintesis": bloque[:400],
+            "sintesis": bloque[:200],
             "tipo_acuerdo": "",
             "confianza": "baja",
         }
@@ -62,9 +68,10 @@ def transcribir_bloque(bloque: str) -> dict:
 def enriquecer(coincidencias: list[Coincidencia]) -> list[dict]:
     salidas = []
     for c in coincidencias:
-        datos = transcribir_bloque(c.bloque_texto)
+        datos = transcribir_bloque(c.bloque_texto, expediente=c.expediente)
         salidas.append({
             "coincidencia": c,
+            "entrada_literal": datos.get("entrada_literal", ""),
             "juzgado_boletin": datos.get("juzgado", ""),
             "sintesis": datos.get("sintesis", ""),
             "tipo_acuerdo": datos.get("tipo_acuerdo", ""),
