@@ -79,6 +79,11 @@ def generar_md(
                 lines.append(f"- **Entrada literal del expediente:**")
                 lines.append(f"  > {item['entrada_literal']}")
             lines.append(f"- **Síntesis del asunto:** {item['sintesis']}")
+            if item.get("imagen_hoja"):
+                lines.append("")
+                lines.append(f"**🖼️ Vista de la hoja con resaltado amarillo:**")
+                lines.append("")
+                lines.append(f"![Hoja {c.pagina_impresa or c.hoja} — exp {c.expediente}]({item['imagen_hoja']})")
             lines.append(f"- **Ruta de validación:** {c.ruta_validacion} — {c.motivo}")
             lines.append(f"- **Confianza IA:** {item['confianza']}")
             lines.append(f"- **Hash bloque:** `{_hash_bloque(c.bloque_texto)}`")

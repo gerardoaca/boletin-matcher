@@ -15,6 +15,7 @@ input/listados/*.jpeg
 input/listados/*.jpg
 input/listados/*.png
 output/*.md
+output/imgs/
 logs/*.log
 
 # pero sí mantener estructura

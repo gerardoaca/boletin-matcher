@@ -17,6 +17,7 @@ from core.ocr import (
     aplicar_ocr,
     herramientas_ocr_disponibles,
 )
+from core.page_renderer import renderizar_hoja_con_resaltado
 
 load_dotenv(override=True)
 
@@ -122,6 +123,26 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
                     "tipo_acuerdo": "",
                     "confianza": "n/a",
                 } for c in validadas]
+
+            # Generar PNG con resaltado amarillo de cada coincidencia validada
+            if validadas:
+                st.write(f"Generando hojas con resaltado amarillo ({len(validadas)})…")
+                fecha_corta = datetime.now().strftime("%Y%m%d_%H%M%S")
+                imgs_dir = OUTPUT_DIR / "imgs" / f"{fecha_corta}_{Path(boletin_file.name).stem}"
+                for item in enriquecidas:
+                    c = item["coincidencia"]
+                    nombre_png = imgs_dir / f"hoja_{c.pagina_impresa or c.hoja}_exp_{c.expediente.replace('/', '-')}.png"
+                    ruta = renderizar_hoja_con_resaltado(
+                        pdf_path=bol_path_final,
+                        page_index_0based=c.hoja - 1,
+                        expediente=c.expediente,
+                        actor=c.actor_listado,
+                        cliente=c.cliente,
+                        salida_png=nombre_png,
+                    )
+                    if ruta:
+                        # Ruta relativa al .md de salida (ambos en output/)
+                        item["imagen_hoja"] = str(ruta.relative_to(OUTPUT_DIR))
 
             fecha = datetime.now().strftime("%Y-%m-%d_%H%M")
             md = generar_md(
