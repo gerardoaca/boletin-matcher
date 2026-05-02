@@ -28,17 +28,35 @@ st.caption("Matching exacto expediente + actor (o expediente + juzgado para rese
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# Contadores en session_state para poder "borrar" el archivo del uploader
+# (Streamlit no tiene botón X nativo; reseteamos cambiando el key del widget)
+if "boletin_uploader_id" not in st.session_state:
+    st.session_state.boletin_uploader_id = 0
+if "listado_uploader_id" not in st.session_state:
+    st.session_state.listado_uploader_id = 0
+
 col1, col2 = st.columns(2)
 with col1:
     boletin_file = st.file_uploader(
-        "Boletín judicial del día (PDF)", type=["pdf"], key="boletin"
+        "Boletín judicial del día (PDF, hasta 400 MB)",
+        type=["pdf"],
+        key=f"boletin_{st.session_state.boletin_uploader_id}",
     )
+    if boletin_file is not None:
+        if st.button("🗑️ Borrar boletín cargado", key="del_boletin"):
+            st.session_state.boletin_uploader_id += 1
+            st.rerun()
+
 with col2:
     listado_file = st.file_uploader(
         "Listado de clientes (Excel, CSV o PDF)",
         type=["xlsx", "xls", "csv", "pdf"],
-        key="listado",
+        key=f"listado_{st.session_state.listado_uploader_id}",
     )
+    if listado_file is not None:
+        if st.button("🗑️ Borrar listado cargado", key="del_listado"):
+            st.session_state.listado_uploader_id += 1
+            st.rerun()
 
 col3, col4 = st.columns(2)
 with col3:

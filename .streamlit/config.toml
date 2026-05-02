@@ -3,7 +3,7 @@ base = "light"
 primaryColor = "#1a4f8a"
 
 [server]
-maxUploadSize = 200
+maxUploadSize = 400
 
 [browser]
 gatherUsageStats = false
