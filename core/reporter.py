@@ -1,7 +1,33 @@
 """Generación del documento.md con coincidencias."""
 import hashlib
+import re
 from datetime import datetime
 from .matcher import Coincidencia
+
+
+def _frase_busqueda(bloque_texto: str, expediente: str) -> str:
+    """Devuelve un fragmento corto y único cerca del expediente para
+    que el humano pueda hacer Ctrl+F en el PDF y localizarlo de inmediato.
+    """
+    # Normalizar para regex
+    pattern = re.escape(expediente.lstrip("0"))
+    # Buscar el expediente en el bloque
+    m = re.search(pattern, bloque_texto)
+    if not m:
+        return ""
+    # Tomar las 6-8 palabras que preceden al expediente: usualmente
+    # es el nombre del actor + 'vs.' + parte del demandado
+    pre = bloque_texto[:m.start()].rstrip(" .,")
+    palabras = pre.split()
+    # Buscar hacia atrás hasta encontrar un punto que termine la entrada anterior
+    fin_entrada_previa = pre.rfind(". ")
+    if fin_entrada_previa > 0:
+        frase = pre[fin_entrada_previa + 2:].strip()
+    else:
+        frase = " ".join(palabras[-12:])
+    # Limpiar y truncar
+    frase = re.sub(r"\s+", " ", frase).strip()
+    return frase[:100]
 
 
 def _hash_bloque(texto: str) -> str:
@@ -33,7 +59,16 @@ def generar_md(
             lines.append(f"### {i}. Actor: {actor_display}")
             lines.append("")
             lines.append(f"- **Expediente:** {c.expediente}")
-            lines.append(f"- **Hoja del boletín:** {c.hoja} (líneas {c.linea_inicio}–{c.linea_fin})")
+            pag = f"**página impresa {c.pagina_impresa}**" if c.pagina_impresa else ""
+            lines.append(
+                f"- **📍 Localizar en el PDF:** ve a {pag} "
+                f"(o página {c.hoja} del visor)"
+                if c.pagina_impresa else
+                f"- **📍 Localizar en el PDF:** página {c.hoja} del visor"
+            )
+            frase = _frase_busqueda(c.bloque_texto, c.expediente)
+            if frase:
+                lines.append(f"  - Usa **Ctrl+F** y busca: `{frase}`")
             lines.append(f"- **Juzgado (boletín):** {item['juzgado_boletin'] or '(no detectado)'}")
             if c.juzgado_listado:
                 lines.append(f"- **Juzgado (listado):** {c.juzgado_listado}")
@@ -69,7 +104,16 @@ def generar_md(
             lines.append(f"### R{i}. Expediente: {c.expediente}")
             lines.append("")
             lines.append(f"- **Actor (listado):** {actor_display}")
-            lines.append(f"- **Hoja:** {c.hoja} (líneas {c.linea_inicio}–{c.linea_fin})")
+            pag = f"**página impresa {c.pagina_impresa}**" if c.pagina_impresa else ""
+            lines.append(
+                f"- **📍 Localizar en el PDF:** ve a {pag} "
+                f"(o página {c.hoja} del visor)"
+                if c.pagina_impresa else
+                f"- **📍 Localizar en el PDF:** página {c.hoja} del visor"
+            )
+            frase = _frase_busqueda(c.bloque_texto, c.expediente)
+            if frase:
+                lines.append(f"  - Usa **Ctrl+F** y busca: `{frase}`")
             lines.append(f"- **Cliente asignado:** {c.cliente or '(sin asignar)'}")
             lines.append(f"- **Motivo:** {c.motivo}")
             lines.append(f"- **Hash bloque:** `{_hash_bloque(c.bloque_texto)}`")

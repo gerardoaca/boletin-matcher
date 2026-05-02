@@ -14,10 +14,11 @@ from dataclasses import dataclass, field
 
 @dataclass
 class HojaBoletin:
-    numero: int
+    numero: int                  # índice del PDF (PyMuPDF, 1-based)
     texto: str
     lineas: list[str]
     juzgados_pagina: list[str] = field(default_factory=list)
+    pagina_impresa: str = ""     # número de página tal como aparece impreso en el boletín
 
 
 @dataclass
@@ -62,6 +63,20 @@ def _es_juzgado_header(linea: str) -> bool:
     return any(p.search(s) for p in JUZGADO_HEADER_PATTERNS)
 
 
+def _detectar_pagina_impresa(lineas: list[str]) -> str:
+    """Detecta el número de página impreso en el boletín.
+
+    En boletines CDMX típicamente aparece como una línea suelta con solo
+    dígitos (ej. '247') en las primeras 12 líneas, generalmente después
+    de los 'SOLO CONSULTA' del header. Devuelve string vacío si no detecta.
+    """
+    for ln in lineas[:15]:
+        s = ln.strip()
+        if s.isdigit() and 2 <= len(s) <= 4:
+            return s
+    return ""
+
+
 def extraer_hojas(pdf_path: str) -> list[HojaBoletin]:
     doc = fitz.open(pdf_path)
     hojas = []
@@ -69,9 +84,11 @@ def extraer_hojas(pdf_path: str) -> list[HojaBoletin]:
         texto = page.get_text("text")
         lineas = texto.split("\n")
         juzgados_pag = [l.strip() for l in lineas if _es_juzgado_header(l)]
+        pag_impresa = _detectar_pagina_impresa(lineas)
         hojas.append(HojaBoletin(
             numero=i, texto=texto, lineas=lineas,
             juzgados_pagina=juzgados_pag,
+            pagina_impresa=pag_impresa,
         ))
     doc.close()
     return hojas

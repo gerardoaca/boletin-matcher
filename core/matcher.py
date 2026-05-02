@@ -11,11 +11,12 @@ class Coincidencia:
     actor_listado: str
     cliente: str
     juzgado_listado: str
-    hoja: int
+    hoja: int                    # índice PDF (PyMuPDF)
+    pagina_impresa: str          # número de página impreso en el boletín
     linea_inicio: int
     linea_fin: int
     bloque_texto: str
-    ruta_validacion: str        # "A_actor", "B_juzgado", "REVISION"
+    ruta_validacion: str
     motivo: str = ""
     fila_listado: int = 0
     extras: dict = field(default_factory=dict)
@@ -82,6 +83,7 @@ def buscar_coincidencias(
                     cliente=reg.cliente,
                     juzgado_listado=reg.juzgado,
                     hoja=bloque.hoja,
+                    pagina_impresa=hoja.pagina_impresa,
                     linea_inicio=bloque.linea_inicio,
                     linea_fin=bloque.linea_fin,
                     bloque_texto=bloque.texto,
