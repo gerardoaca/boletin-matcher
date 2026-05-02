@@ -1,0 +1,5 @@
+tesseract-ocr
+tesseract-ocr-spa
+ocrmypdf
+ghostscript
+unpaper

@@ -1,0 +1,22 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.streamlit/secrets.toml
+
+# Datos sensibles del cliente — NO subir al repo público
+input/boletines/*.pdf
+input/listados/*.pdf
+input/listados/*.xlsx
+input/listados/*.xls
+input/listados/*.csv
+input/listados/*.jpeg
+input/listados/*.jpg
+input/listados/*.png
+output/*.md
+logs/*.log
+
+# pero sí mantener estructura
+!**/.gitkeep
+!**/listado_clientes_ejemplo.csv
