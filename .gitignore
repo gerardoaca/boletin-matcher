@@ -21,3 +21,4 @@ logs/*.log
 # pero sí mantener estructura
 !**/.gitkeep
 !**/listado_clientes_ejemplo.csv
+.DS_Store
