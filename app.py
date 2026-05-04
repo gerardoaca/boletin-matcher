@@ -29,13 +29,39 @@ st.set_page_config(page_title="Boletines Judiciales — Coincidencias", layout="
 # ═══════════════════════════════════════════════════════════════
 def _obtener_password_correcto() -> str | None:
     """Lee la contraseña esperada de st.secrets o env var APP_PASSWORD."""
+    # 1. Variable de entorno (uso local con .env)
     pw = os.environ.get("APP_PASSWORD")
     if pw:
-        return pw
+        return pw.strip()
+    # 2. Streamlit Cloud secrets — probar varias formas
     try:
-        return st.secrets.get("APP_PASSWORD")
+        if "APP_PASSWORD" in st.secrets:
+            return str(st.secrets["APP_PASSWORD"]).strip()
     except Exception:
-        return None
+        pass
+    try:
+        return str(st.secrets.APP_PASSWORD).strip()
+    except Exception:
+        pass
+    return None
+
+
+def _diagnostico_auth() -> str:
+    """Diagnóstico de la configuración de autenticación (sin exponer la contraseña)."""
+    info = []
+    pw_env = os.environ.get("APP_PASSWORD", "")
+    info.append(f"- APP_PASSWORD en env: {'sí (largo ' + str(len(pw_env)) + ')' if pw_env else 'no'}")
+    try:
+        keys = list(st.secrets.keys()) if hasattr(st.secrets, "keys") else []
+        info.append(f"- Claves en st.secrets: {keys}")
+        if "APP_PASSWORD" in keys:
+            v = str(st.secrets["APP_PASSWORD"])
+            info.append(f"- APP_PASSWORD en secrets: sí (largo {len(v)})")
+        else:
+            info.append("- APP_PASSWORD en secrets: NO")
+    except Exception as e:
+        info.append(f"- st.secrets falló: {type(e).__name__}: {e}")
+    return "\n".join(info)
 
 
 def _verificar_password() -> bool:
@@ -50,13 +76,18 @@ def _verificar_password() -> bool:
 
     st.markdown("## 🔒 Acceso restringido")
     st.markdown("Esta aplicación requiere contraseña para entrar.")
-    pw_intento = st.text_input("Contraseña", type="password", key="pw_input")
-    if st.button("Entrar"):
-        if pw_intento == pw_esperado:
-            st.session_state["autenticado"] = True
-            st.rerun()
-        else:
-            st.error("Contraseña incorrecta")
+    with st.form("login_form", clear_on_submit=False):
+        pw_intento = st.text_input("Contraseña", type="password", key="pw_input")
+        submitted = st.form_submit_button("Entrar")
+        if submitted:
+            if pw_intento.strip() == pw_esperado:
+                st.session_state["autenticado"] = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta")
+
+    with st.expander("🔧 Diagnóstico (solo para depurar)"):
+        st.code(_diagnostico_auth(), language="text")
     return False
 
 
