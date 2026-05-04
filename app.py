@@ -22,8 +22,56 @@ from core.page_renderer import renderizar_hoja_con_resaltado
 load_dotenv(override=True)
 
 st.set_page_config(page_title="Boletines Judiciales — Coincidencias", layout="wide")
+
+
+# ═══════════════════════════════════════════════════════════════
+# AUTENTICACIÓN (contraseña compartida)
+# ═══════════════════════════════════════════════════════════════
+def _obtener_password_correcto() -> str | None:
+    """Lee la contraseña esperada de st.secrets o env var APP_PASSWORD."""
+    pw = os.environ.get("APP_PASSWORD")
+    if pw:
+        return pw
+    try:
+        return st.secrets.get("APP_PASSWORD")
+    except Exception:
+        return None
+
+
+def _verificar_password() -> bool:
+    """Bloquea la app hasta que el usuario ingrese la contraseña correcta."""
+    pw_esperado = _obtener_password_correcto()
+    # Si NO hay contraseña configurada → app abierta (modo legacy)
+    if not pw_esperado:
+        return True
+
+    if st.session_state.get("autenticado"):
+        return True
+
+    st.markdown("## 🔒 Acceso restringido")
+    st.markdown("Esta aplicación requiere contraseña para entrar.")
+    pw_intento = st.text_input("Contraseña", type="password", key="pw_input")
+    if st.button("Entrar"):
+        if pw_intento == pw_esperado:
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta")
+    return False
+
+
+if not _verificar_password():
+    st.stop()
+
+
+# ═══════════════════════════════════════════════════════════════
+# APP
+# ═══════════════════════════════════════════════════════════════
 st.title("Buscador de coincidencias en boletines judiciales")
 st.caption("Matching exacto expediente + actor (o expediente + juzgado para reservados).")
+if st.sidebar.button("Cerrar sesión"):
+    st.session_state.pop("autenticado", None)
+    st.rerun()
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
