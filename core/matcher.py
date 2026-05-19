@@ -1,7 +1,7 @@
 """Motor de matching determinista con doble llave y dedup por expediente+hoja."""
 from dataclasses import dataclass, field
 from .extractor import HojaBoletin, localizar_expedientes_en_hoja
-from .normalizer import normalizar_texto, alguna_parte_en_texto
+from .normalizer import normalizar_texto, alguna_parte_en_texto, juzgados_equivalentes
 from .listado_loader import RegistroCliente
 
 
@@ -37,7 +37,7 @@ def _juzgado_en_pagina(juzgado_norm: str, hoja: HojaBoletin, juzgado_seccion: st
     for j in objetivos:
         if not j:
             continue
-        if juzgado_norm in normalizar_texto(j):
+        if juzgados_equivalentes(juzgado_norm, normalizar_texto(j)):
             return True
     return False
 
@@ -98,8 +98,24 @@ def buscar_coincidencias(
                     },
                 )
 
+                # En CDMX el mismo número de expediente existe en distintos
+                # juzgados y son casos distintos. Si el listado trae juzgado y
+                # NO coincide con el del bloque, degradamos a REVISION aunque
+                # los tokens del actor/cliente caigan: es la firma típica de
+                # un homónimo cross-juzgado.
+                juzgado_conflicto = bool(reg.juzgado) and not juzgado_match
+
                 # Ruta A: actor del listado aparece (tokens) en el bloque
                 if actor_en_bloque:
+                    if juzgado_conflicto:
+                        c.motivo = (
+                            "Match expediente + actor (tokens), pero el juzgado "
+                            f"del listado ({reg.juzgado}) NO coincide con el "
+                            f"del bloque ({bloque.juzgado_seccion}). "
+                            "Posible homónimo en otro juzgado."
+                        )
+                        revision.append(c)
+                        continue
                     c.ruta_validacion = "A_actor"
                     c.motivo = (
                         "Match expediente + actor (tokens)"
@@ -110,6 +126,15 @@ def buscar_coincidencias(
 
                 # Ruta A2: el cliente del listado aparece como parte en el boletín
                 if cliente_en_bloque:
+                    if juzgado_conflicto:
+                        c.motivo = (
+                            "Match expediente + cliente, pero el juzgado del "
+                            f"listado ({reg.juzgado}) NO coincide con el del "
+                            f"bloque ({bloque.juzgado_seccion}). "
+                            "Posible homónimo en otro juzgado."
+                        )
+                        revision.append(c)
+                        continue
                     c.ruta_validacion = "A_cliente"
                     c.motivo = (
                         "Match expediente + cliente (cliente aparece como parte procesal)"

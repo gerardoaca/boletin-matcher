@@ -80,8 +80,184 @@ def normalizar_nombre(nombre: str) -> str:
     return normalizar_texto(nombre)
 
 
+# --------------------------------------------------------------------------- #
+# Parser ordinal compositivo en español (sin tope numérico).
+# Permite que la app reconozca el número del juzgado SIN tabla acotada:
+#   DECIMO PRIMERO = UNDECIMO = 11
+#   VIGESIMO TERCERO = 23
+#   CENTESIMO VIGESIMO TERCERO = 123
+#   DUCENTESIMO QUINCUAGESIMO OCTAVO = 258
+#   NONINGENTESIMO NONAGESIMO NOVENO = 999
+# Política irreductible: si el parser no resuelve con certeza, devuelve None
+# y el matcher degrada a REVISION (nunca valida bajo ambigüedad).
+# --------------------------------------------------------------------------- #
+
+_ORD_UNI = {
+    "PRIMERO": 1, "PRIMER": 1, "SEGUNDO": 2, "TERCERO": 3, "TERCER": 3,
+    "CUARTO": 4, "QUINTO": 5, "SEXTO": 6, "SEPTIMO": 7, "OCTAVO": 8,
+    "NOVENO": 9,
+}
+_ORD_DEC = {
+    "DECIMO": 10, "VIGESIMO": 20, "TRIGESIMO": 30, "CUADRAGESIMO": 40,
+    "QUINCUAGESIMO": 50, "SEXAGESIMO": 60, "SEPTUAGESIMO": 70,
+    "OCTOGESIMO": 80, "NONAGESIMO": 90,
+}
+_ORD_CEN = {
+    "CENTESIMO": 100, "DUCENTESIMO": 200, "TRICENTESIMO": 300,
+    "CUADRINGENTESIMO": 400, "QUINGENTESIMO": 500, "SEXCENTESIMO": 600,
+    "SEPTINGENTESIMO": 700, "OCTINGENTESIMO": 800, "NONINGENTESIMO": 900,
+}
+# Formas irregulares 11–12 (sintéticas con DECIMO también se aceptan)
+_ORD_IRR = {"UNDECIMO": 11, "DUODECIMO": 12}
+
+# Reparaciones OCR canónicas dentro de un token candidato a ordinal.
+_OCR_FIX = str.maketrans({"5": "S", "0": "O", "1": "I"})
+
+
+def _flex_ordinal(token: str) -> str:
+    """Normaliza un token ordinal: quita género/número final, mayúsculas, OCR comunes."""
+    if not token:
+        return token
+    t = token
+    # Quitar sufijos de género/número: PRIMERA→PRIMER + O, etc. Mantener variantes
+    # más comunes mapeadas vía _ORD_UNI/_ORD_DEC. Aquí solo arreglamos -A/-AS/-OS.
+    if t.endswith("AS") or t.endswith("OS"):
+        t = t[:-2] + "O"
+    elif t.endswith("A"):
+        t = t[:-1] + "O"
+    return t
+
+
+def _lookup_ordinal(token: str) -> tuple[int | None, str]:
+    """Resuelve un token ordinal. Devuelve (valor, motivo_correccion).
+    motivo_correccion ∈ {"", "ocr", "flex"} para auditoría.
+    """
+    if not token:
+        return None, ""
+    tflex = _flex_ordinal(token)
+    for d in (_ORD_IRR, _ORD_CEN, _ORD_DEC, _ORD_UNI):
+        if tflex in d:
+            return d[tflex], "" if tflex == token else "flex"
+    # Reparación OCR conservadora (5→S, 0→O, 1→I) — sólo si produce match único
+    cand = tflex.translate(_OCR_FIX)
+    if cand != tflex:
+        for d in (_ORD_IRR, _ORD_CEN, _ORD_DEC, _ORD_UNI):
+            if cand in d:
+                return d[cand], "ocr"
+    return None, ""
+
+
+def _parse_ordinal_es(texto_norm: str) -> int | None:
+    """Parser greedy compositivo. Suma centenas + decenas + unidades.
+    Acepta cualquier composición válida (sin tope). Devuelve None si:
+      - no encuentra ningún morfema ordinal,
+      - un mismo orden se repite (e.g. dos centenas) → ambigüedad.
+    Cualquier basura intermedia (palabras no-ordinales) se ignora; lo que
+    no se ignora es la presencia de morfemas inválidos en posiciones
+    contradictorias.
+    """
+    if not texto_norm:
+        return None
+    tokens = texto_norm.split()
+    seen_cen = seen_dec = seen_uni = seen_irr = False
+    total = 0
+    matched_any = False
+    for tok in tokens:
+        val, _why = _lookup_ordinal(tok)
+        if val is None:
+            continue
+        # Clasificar y validar no-repetición de orden
+        if val >= 100:
+            if seen_cen:
+                return None  # dos centenas → ambigüedad
+            seen_cen = True
+            total += val
+        elif val in _ORD_IRR.values():
+            if seen_irr or seen_dec or seen_uni:
+                return None
+            seen_irr = True
+            total += val
+        elif val % 10 == 0 and val >= 10:
+            if seen_dec or seen_irr:
+                return None
+            seen_dec = True
+            total += val
+        else:  # unidad 1..9
+            if seen_uni or seen_irr:
+                return None
+            seen_uni = True
+            total += val
+        matched_any = True
+    return total if matched_any else None
+
+
+def _numero_juzgado(texto_norm: str) -> int | None:
+    """Extrae el número del juzgado. Estrategia:
+      1) Dígito arábigo directo en el texto ("JUZGADO 23 CIVIL").
+      2) Ordinal escrito vía parser compositivo (sin tope).
+    Si AMBOS están presentes y no coinciden → None (ambigüedad → REVISIÓN).
+    """
+    if not texto_norm:
+        return None
+    n_digito: int | None = None
+    # Sólo aceptamos dígitos que sean un TOKEN propio (no embebidos en
+    # palabras corruptas por OCR, p.ej. "VIGE5IMO" → no debe leerse "5").
+    m = re.search(r"(?:^|\s)(\d{1,4})(?:\s|$)", texto_norm)
+    if m:
+        cand = int(m.group(1))
+        if 1 <= cand <= 9999:
+            n_digito = cand
+    n_ordinal = _parse_ordinal_es(texto_norm)
+    # Cross-check: si los dos existen y disienten, no inventes — REVISIÓN.
+    if n_digito is not None and n_ordinal is not None:
+        if n_digito != n_ordinal:
+            return None
+        return n_digito
+    return n_digito if n_digito is not None else n_ordinal
+
+
+_MATERIAS = {"CIVIL", "FAMILIAR", "PENAL", "MERCANTIL",
+             "ARRENDAMIENTO", "INMOBILIARIO", "PAZ", "CONTROL",
+             "ENJUICIAMIENTO", "EJECUCION", "ADOLESCENTES", "TUTELA"}
+# Modalidad procesal: si ambos lados la declaran, DEBE coincidir exactamente
+_MODALIDADES = {"ORAL", "ESCRITO", "TRADICIONAL"}
+
+
+def _tokens_de(texto_norm: str, universo: set[str]) -> set[str]:
+    return {t for t in texto_norm.split() if t in universo}
+
+
 def normalizar_juzgado(juzgado: str) -> str:
     return normalizar_texto(juzgado)
+
+
+def juzgados_equivalentes(juzgado_listado_norm: str, header_norm: str) -> bool:
+    """True si juzgado del listado y header del boletín apuntan al mismo órgano.
+
+    Compara por número (dígito ↔ ordinal escrito) y materia. Si el listado
+    no tiene número detectable, cae al match de substring permisivo previo.
+    """
+    if not juzgado_listado_norm or not header_norm:
+        return False
+    n_listado = _numero_juzgado(juzgado_listado_norm)
+    n_header = _numero_juzgado(header_norm)
+    if n_listado is not None and n_header is not None:
+        if n_listado != n_header:
+            return False
+        mat_l = _tokens_de(juzgado_listado_norm, _MATERIAS)
+        mat_h = _tokens_de(header_norm, _MATERIAS)
+        # Si ambos traen materia, debe intersectar
+        if mat_l and mat_h and not (mat_l & mat_h):
+            return False
+        mod_l = _tokens_de(juzgado_listado_norm, _MODALIDADES)
+        mod_h = _tokens_de(header_norm, _MODALIDADES)
+        # Si ambos traen modalidad procesal (Oral/Escrito), debe ser idéntica:
+        # el juzgado 23 ORAL y el juzgado 23 ESCRITO son órganos distintos.
+        if mod_l and mod_h and mod_l != mod_h:
+            return False
+        return True
+    # Fallback: substring (comportamiento previo)
+    return juzgado_listado_norm in header_norm
 
 
 def tokens_significativos(nombre: str) -> set[str]:
