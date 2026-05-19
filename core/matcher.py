@@ -1,7 +1,12 @@
 """Motor de matching determinista con doble llave y dedup por expediente+hoja."""
 from dataclasses import dataclass, field
 from .extractor import HojaBoletin, localizar_expedientes_en_hoja
-from .normalizer import normalizar_texto, alguna_parte_en_texto, juzgados_equivalentes
+from .normalizer import (
+    normalizar_texto,
+    alguna_parte_en_texto,
+    alguna_parte_junta_en_texto,
+    juzgados_equivalentes,
+)
 from .listado_loader import RegistroCliente
 
 
@@ -171,15 +176,18 @@ def buscar_coincidencias(
                     continue
 
                 # Filtro anti-homónimo: si ni actor ni cliente aparecen en
-                # la HOJA COMPLETA, descartamos silenciosamente (homónimo puro)
+                # la HOJA COMPLETA *con proximidad* entre sus tokens,
+                # descartamos silenciosamente (homónimo puro).
+                # Proximidad evita matches espurios donde los tokens del
+                # nombre están dispersos en pleitos distintos de la página.
                 hoja_norm = normalizar_texto(hoja.texto)
                 actor_en_hoja = (
                     reg.actor and not reg.actor_reservado
-                    and alguna_parte_en_texto(reg.actor, hoja_norm)
+                    and alguna_parte_junta_en_texto(reg.actor, hoja_norm)
                 )
                 cliente_en_hoja = (
                     reg.cliente
-                    and alguna_parte_en_texto(reg.cliente, hoja_norm)
+                    and alguna_parte_junta_en_texto(reg.cliente, hoja_norm)
                 )
                 if not actor_en_hoja and not cliente_en_hoja:
                     # Homónimo: ni actor ni cliente aparecen en la hoja → descartar

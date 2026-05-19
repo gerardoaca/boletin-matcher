@@ -306,3 +306,58 @@ def alguna_parte_en_texto(nombre: str, texto_norm: str) -> bool:
     if not partes:
         return False
     return any(todos_tokens_en_texto(p, texto_norm) for p in partes)
+
+
+def tokens_juntos_en_texto(nombre: str, texto_norm: str, max_gap: int = 120) -> bool:
+    """True si todos los tokens significativos del nombre aparecen dentro de
+    una misma ventana de `max_gap` caracteres en texto_norm.
+
+    Sirve para evitar falsos homónimos: "VELAZQUEZ", "CARRANZA" y "ARMANDO"
+    pueden aparecer en una página entera como nombres de pleitos distintos
+    sin pertenecer a la misma persona. Si los tres tokens no caben juntos en
+    ~un renglón/párrafo, no son la misma parte procesal.
+    """
+    toks = tokens_significativos(nombre)
+    if not toks:
+        return False
+    if not all(t in texto_norm for t in toks):
+        return False
+    # Posiciones de la primera aparición de cada token
+    posiciones = []
+    for t in toks:
+        idxs = []
+        start = 0
+        while True:
+            pos = texto_norm.find(t, start)
+            if pos == -1:
+                break
+            idxs.append(pos)
+            start = pos + 1
+        posiciones.append(sorted(idxs))
+    # Búsqueda greedy: elegir un índice por token tal que max-min <= max_gap.
+    # Heurística simple: iterar combinaciones limitando por la primera lista.
+    for p0 in posiciones[0]:
+        elegidos = [p0]
+        ok = True
+        for lista in posiciones[1:]:
+            # buscar el más cercano a p0
+            mejor = min(lista, key=lambda x: abs(x - p0))
+            elegidos.append(mejor)
+            if max(elegidos) - min(elegidos) > max_gap:
+                ok = False
+                break
+        if ok and max(elegidos) - min(elegidos) <= max_gap:
+            return True
+    return False
+
+
+def alguna_parte_junta_en_texto(nombre: str, texto_norm: str, max_gap: int = 120) -> bool:
+    """Como alguna_parte_en_texto pero exigiendo proximidad entre tokens.
+    Útil para el filtro anti-homónimo sobre una HOJA completa: evita
+    considerar "presente" a un nombre cuyos tokens están dispersos en
+    pleitos distintos.
+    """
+    partes = dividir_partes(nombre)
+    if not partes:
+        return False
+    return any(tokens_juntos_en_texto(p, texto_norm, max_gap) for p in partes)
