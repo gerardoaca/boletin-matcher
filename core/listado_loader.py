@@ -13,12 +13,13 @@ from .normalizer import (
 @dataclass
 class RegistroCliente:
     expediente: str           # canónico
-    actor: str                # normalizado, vacío si reservado
-    actor_reservado: bool
+    actor: str                # normalizado, vacío si reservado o desconocido
+    actor_reservado: bool     # True si declarado explícitamente reservado/genérico
     juzgado: str              # normalizado
     cliente: str              # nombre del cliente al que se asigna
     fila_origen: int          # para auditoría
     raw: dict                 # registro original sin tocar
+    actor_desconocido: bool = False  # True si la celda actor está vacía (no declarado)
 
 
 COLUMNAS_ESPERADAS = {
@@ -65,16 +66,19 @@ def _df_a_registros(df: pd.DataFrame) -> list[RegistroCliente]:
             continue
         actor_raw = str(row.get(col_actor, "")) if col_actor else ""
         reservado = es_actor_reservado(actor_raw)
+        # Desconocido: la celda viene vacía (o solo whitespace) — no declarado.
+        desconocido = (not reservado) and (not actor_raw.strip())
         juzgado = normalizar_juzgado(str(row.get(col_juz, ""))) if col_juz else ""
         cliente = str(row.get(col_cli, "")) if col_cli else ""
         registros.append(RegistroCliente(
             expediente=exp,
-            actor="" if reservado else normalizar_nombre(actor_raw),
+            actor="" if (reservado or desconocido) else normalizar_nombre(actor_raw),
             actor_reservado=reservado,
             juzgado=juzgado,
             cliente=cliente,
             fila_origen=int(idx) + 2,  # +2 por header y 1-indexado
             raw=row.to_dict(),
+            actor_desconocido=desconocido,
         ))
     return registros
 

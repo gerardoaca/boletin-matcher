@@ -66,12 +66,27 @@ def extraer_expedientes(texto: str) -> list[str]:
 
 
 def es_actor_reservado(nombre: str) -> bool:
+    """True solo si el actor está EXPLÍCITAMENTE declarado como reservado
+    o genérico (***, RESERVADO, SUCESION INTESTAMENTARIA, etc.).
+
+    Importante: cadena vacía / None NO es reservado — es "desconocido"
+    (no declarado). Distinguir esto evita que listados sin columna actor
+    o con celdas vacías caigan a Ruta B y se descarten silenciosamente.
+    """
     if not nombre:
+        return False
+    raw = str(nombre).strip()
+    if not raw:
+        return False
+    # Patrón de asteriscos puro ("***", "* * *", etc.) — pierde sus chars al
+    # normalizar (normalizar_texto elimina no-alfanuméricos), así que se
+    # detecta sobre el raw.
+    if re.fullmatch(r"[\*\s]+", raw):
         return True
     n = normalizar_texto(nombre).strip()
-    if not n or n in RESERVADO_TOKENS:
-        return True
-    if re.fullmatch(r"[\*\s]+", n):
+    if not n:
+        return False
+    if n in RESERVADO_TOKENS:
         return True
     return False
 

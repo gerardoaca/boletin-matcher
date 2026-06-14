@@ -1,4 +1,16 @@
-"""Generación del documento.md con coincidencias."""
+"""Generación del documento.md con coincidencias.
+
+Convención de campos por item enriquecido
+-----------------------------------------
+- ``imagen_hoja``: ruta RELATIVA al .md de salida (se usa como destino del
+  link markdown ``![...](imagen_hoja)``). Es la que ve el usuario al abrir
+  el .md desde el directorio de output.
+- ``imagen_hoja_abs`` (opcional): ruta ABSOLUTA del PNG en disco. La pone
+  el caller (app.py) inmediatamente después de generar la imagen. La usa
+  ``core/zip_packager.empaquetar_reporte_zip`` para localizar el archivo
+  real sin tener que reconstruir la ruta. Si no está, el packager hace
+  fallback resolviendo ``imagen_hoja`` contra ``md_path.parent``.
+"""
 import hashlib
 import re
 from datetime import datetime

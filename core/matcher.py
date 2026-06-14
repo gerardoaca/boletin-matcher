@@ -180,6 +180,36 @@ def buscar_coincidencias(
                     revision.append(c)
                     continue
 
+                # Ruta C: actor desconocido (celda vacía en el listado, no declarado).
+                # NO exigimos juzgado obligatorio. Si el juzgado declarado del
+                # listado existe y conflictúa, degradamos a REVISION (homónimo
+                # cross-juzgado). Si coincide, validamos. Si no hay forma de
+                # corroborar más allá del expediente, mandamos a REVISION en
+                # lugar de descartar silenciosamente.
+                if reg.actor_desconocido:
+                    if juzgado_conflicto:
+                        c.motivo = (
+                            "Actor no declarado en listado, juzgado del listado "
+                            f"({reg.juzgado}) NO coincide con el del bloque "
+                            f"({bloque.juzgado_seccion}). Posible homónimo."
+                        )
+                        revision.append(c)
+                        continue
+                    if juzgado_match:
+                        c.ruta_validacion = "B_juzgado"
+                        c.motivo = (
+                            "Actor no declarado en listado: match expediente + juzgado"
+                        )
+                        validadas.append(c)
+                        continue
+                    # Sin actor y sin juzgado corroborable → REVISION manual
+                    c.motivo = (
+                        "Actor no declarado en listado y sin juzgado corroborable. "
+                        "Coincide únicamente expediente — requiere revisión humana."
+                    )
+                    revision.append(c)
+                    continue
+
                 if juzgado_match:
                     c.ruta_validacion = "B_juzgado"
                     c.motivo = (

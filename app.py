@@ -1,6 +1,8 @@
 """Interfaz Streamlit para procesar boletines judiciales contra listado de clientes."""
+import hmac
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from core.ocr import (
     herramientas_ocr_disponibles,
 )
 from core.page_renderer import renderizar_hoja_con_resaltado
+from core.zip_packager import empaquetar_reporte_zip
 
 load_dotenv(override=True)
 
@@ -67,27 +70,57 @@ def _diagnostico_auth() -> str:
 def _verificar_password() -> bool:
     """Bloquea la app hasta que el usuario ingrese la contraseña correcta."""
     pw_esperado = _obtener_password_correcto()
-    # Si NO hay contraseña configurada → app abierta (modo legacy)
+    # FAIL-CLOSED: si no hay password configurada, no abrimos la app.
     if not pw_esperado:
-        return True
+        st.error("APP_PASSWORD no configurada. Contacte al administrador.")
+        st.stop()
 
     if st.session_state.get("autenticado"):
+        # Diagnóstico opcional SOLO post-auth y bajo flag de debug explícito.
+        if os.environ.get("DEBUG_AUTH") == "1":
+            with st.sidebar.expander("🔧 Diagnóstico auth (DEBUG_AUTH=1)"):
+                st.code(_diagnostico_auth(), language="text")
         return True
+
+    # Rate limiting con backoff exponencial por sesión.
+    intentos_fallidos = st.session_state.get("intentos_fallidos", 0)
+    bloqueado_hasta = st.session_state.get("bloqueado_hasta", 0.0)
+    ahora = time.time()
+    restante = int(bloqueado_hasta - ahora)
 
     st.markdown("## 🔒 Acceso restringido")
     st.markdown("Esta aplicación requiere contraseña para entrar.")
+
+    bloqueado = restante > 0
+    if bloqueado:
+        st.warning(
+            f"Demasiados intentos fallidos. Espere {restante} segundo(s) antes de reintentar."
+        )
+
     with st.form("login_form", clear_on_submit=False):
         pw_intento = st.text_input("Contraseña", type="password", key="pw_input")
-        submitted = st.form_submit_button("Entrar")
-        if submitted:
-            if pw_intento.strip() == pw_esperado:
+        submitted = st.form_submit_button("Entrar", disabled=bloqueado)
+        if submitted and not bloqueado:
+            intento_bytes = pw_intento.strip().encode("utf-8")
+            esperado_bytes = pw_esperado.encode("utf-8")
+            if hmac.compare_digest(intento_bytes, esperado_bytes):
                 st.session_state["autenticado"] = True
+                st.session_state["intentos_fallidos"] = 0
+                st.session_state["bloqueado_hasta"] = 0.0
                 st.rerun()
             else:
-                st.error("Contraseña incorrecta")
+                intentos_fallidos += 1
+                st.session_state["intentos_fallidos"] = intentos_fallidos
+                if intentos_fallidos >= 3:
+                    espera = min(300, 3 ** (intentos_fallidos - 2))
+                    st.session_state["bloqueado_hasta"] = time.time() + espera
+                    st.error(
+                        f"Contraseña incorrecta. Bloqueado por {espera} segundo(s) "
+                        f"tras {intentos_fallidos} intentos fallidos."
+                    )
+                else:
+                    st.error("Contraseña incorrecta")
 
-    with st.expander("🔧 Diagnóstico (solo para depurar)"):
-        st.code(_diagnostico_auth(), language="text")
     return False
 
 
@@ -240,6 +273,8 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
                     if ruta:
                         # Ruta relativa al .md de salida (ambos en output/)
                         item["imagen_hoja"] = str(ruta.relative_to(OUTPUT_DIR))
+                        # Ruta absoluta para que el zip_packager localice el PNG
+                        item["imagen_hoja_abs"] = str(ruta)
 
             fecha = datetime.now().strftime("%Y-%m-%d_%H%M")
             md = generar_md(
@@ -253,8 +288,27 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
             status.update(label="Listo", state="complete")
 
     st.success(f"Documento generado: `{out_path}`")
+
+    # ZIP con .md + imágenes embebidas (rutas válidas al abrirlo fuera del repo)
+    imgs_abs = [
+        Path(item["imagen_hoja_abs"])
+        for item in enriquecidas
+        if item.get("imagen_hoja_abs")
+    ]
+    try:
+        zip_bytes = empaquetar_reporte_zip(out_path, imgs_abs)
+        st.download_button(
+            "📦 Descargar reporte completo (ZIP con imágenes)",
+            data=zip_bytes,
+            file_name=f"{out_path.stem}.zip",
+            mime="application/zip",
+            type="primary",
+        )
+    except Exception as e:
+        st.warning(f"No se pudo generar el ZIP: {e}")
+
     st.download_button(
-        "Descargar documento.md",
+        "📄 Descargar solo documento.md (sin imágenes)",
         data=md,
         file_name=out_path.name,
         mime="text/markdown",
