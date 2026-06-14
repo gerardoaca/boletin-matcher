@@ -108,7 +108,21 @@ def buscar_coincidencias(
                 # NO coincide con el del bloque, degradamos a REVISION aunque
                 # los tokens del actor/cliente caigan: es la firma típica de
                 # un homónimo cross-juzgado.
-                juzgado_conflicto = bool(reg.juzgado) and not juzgado_match
+                #
+                # Importante: solo aplica si EFECTIVAMENTE detectamos un juzgado
+                # en el bloque o en la hoja. Si el detector de headers no encontró
+                # ninguno, no tenemos forma de comparar y no debemos descartar
+                # el match (evita la regresión de mandar todos los matches reales
+                # a REVISION cuando el formato del boletín cambia o el header no
+                # se detecta).
+                juzgado_detectado = bool(
+                    bloque.juzgado_seccion or hoja.juzgados_pagina
+                )
+                juzgado_conflicto = (
+                    bool(reg.juzgado)
+                    and juzgado_detectado
+                    and not juzgado_match
+                )
 
                 # Ruta A: actor del listado aparece (tokens) en el bloque
                 if actor_en_bloque:
