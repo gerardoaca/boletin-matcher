@@ -22,3 +22,4 @@ logs/*.log
 !**/.gitkeep
 !**/listado_clientes_ejemplo.csv
 .DS_Store
+logs/healthcheck/

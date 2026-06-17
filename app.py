@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from core.extractor import extraer_hojas
 from core.listado_loader import cargar_listado
 from core.matcher import buscar_coincidencias
-from core.transcriber import enriquecer
+from core.transcriber import enriquecer, costo_total
 from core.reporter import generar_md
 from core.ocr import (
     pdf_tiene_texto,
@@ -21,6 +21,7 @@ from core.ocr import (
 )
 from core.page_renderer import renderizar_hoja_con_resaltado
 from core.zip_packager import empaquetar_reporte_zip
+from core.audit_log import registrar_run, leer_runs
 
 load_dotenv(override=True)
 
@@ -137,6 +138,27 @@ if st.sidebar.button("Cerrar sesión"):
     st.session_state.pop("autenticado", None)
     st.rerun()
 
+with st.sidebar.expander("🗂️ Últimos runs (auditoría)", expanded=False):
+    _ultimos = leer_runs(n=5)
+    if not _ultimos:
+        st.caption("Sin runs registrados todavía.")
+    else:
+        # Mostramos del más reciente al más viejo, sólo columnas clave.
+        _tabla = [
+            {
+                "ts_utc": r.get("ts_utc", "")[:19],
+                "boletin": r.get("boletin", "")[:32],
+                "val": r.get("validadas"),
+                "rev": r.get("revision"),
+                "err_ia": r.get("errores_ia"),
+                "usd": r.get("costo_usd"),
+                "s": r.get("duracion_s"),
+                "git": r.get("git_sha", ""),
+            }
+            for r in reversed(_ultimos)
+        ]
+        st.dataframe(_tabla, hide_index=True, use_container_width=True)
+
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -208,6 +230,8 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
             destino.write_bytes(listado_file.getvalue())
             st.info(f"📌 Listado guardado en `{destino.name}` para próximas ejecuciones.")
 
+        _t0_run = time.time()
+        errores_ia = 0
         with st.status("Procesando…", expanded=True) as status:
             st.write("Cargando listado de clientes…")
             try:
@@ -299,6 +323,36 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
             )
             out_path = OUTPUT_DIR / f"{fecha}_{Path(boletin_file.name).stem}.md"
             out_path.write_text(md, encoding="utf-8")
+
+            # Totales de uso/costo de la IA (0.0 si se omitió IA)
+            _totales_ia = costo_total(enriquecidas) if (not omitir_ia and validadas) else {
+                "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0, "errores": 0,
+            }
+            registrar_run(
+                boletin_nombre=boletin_file.name,
+                boletin_path=Path(bol_path_final),
+                listado_path=Path(lis_path),
+                validadas=len(validadas),
+                revision=len(revision),
+                errores_ia=errores_ia,
+                costo_usd=_totales_ia["costo_usd"],
+                duracion_s=time.time() - _t0_run,
+                metadata={
+                    "omitir_ia": bool(omitir_ia),
+                    "ocr_auto": bool(ocr_auto),
+                    "tokens_in": _totales_ia["tokens_in"],
+                    "tokens_out": _totales_ia["tokens_out"],
+                },
+            )
+
+            # Mostrar costo al usuario después del éxito
+            if _totales_ia["costo_usd"] > 0:
+                st.info(
+                    f"💰 Costo IA de este run: ${_totales_ia['costo_usd']:.4f} USD "
+                    f"({_totales_ia['tokens_in']:,} tokens in + "
+                    f"{_totales_ia['tokens_out']:,} tokens out)"
+                )
+
             status.update(label="Listo", state="complete")
 
     st.success(f"Documento generado: `{out_path}`")

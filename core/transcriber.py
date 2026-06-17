@@ -28,6 +28,17 @@ MAX_TOKENS = 900
 MAX_BLOQUE_CHARS = 8000  # truncar bloques absurdamente grandes
 MAX_REINTENTOS = 3
 
+# Pricing Claude Haiku 4.5 (USD por millón de tokens). Ajustar si cambia.
+COSTO_INPUT_USD_POR_MTOK = 1.0
+COSTO_OUTPUT_USD_POR_MTOK = 5.0
+
+
+def _calcular_costo_usd(tokens_in: int, tokens_out: int) -> float:
+    return (
+        tokens_in * COSTO_INPUT_USD_POR_MTOK
+        + tokens_out * COSTO_OUTPUT_USD_POR_MTOK
+    ) / 1_000_000
+
 PROMPT_SISTEMA = """Eres un asistente legal que extrae información literal de bloques de boletines judiciales mexicanos. NUNCA inventes datos. Si un dato no aparece, devuelve cadena vacía.
 
 Te paso un bloque de texto que contiene MÚLTIPLES entradas del boletín y un EXPEDIENTE OBJETIVO. Debes localizar EXACTAMENTE la entrada que contiene ese expediente (no otras) y devolver JSON con:
@@ -67,6 +78,9 @@ def _fallback(bloque: str, motivo: str, confianza: str = "baja") -> dict:
         "tipo_acuerdo": "",
         "confianza": confianza,
         "error": motivo or "",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "costo_usd": 0.0,
     }
 
 
@@ -97,16 +111,32 @@ def transcribir_bloque(bloque: str, expediente: str = "") -> dict:
                 system=PROMPT_SISTEMA,
                 messages=[{"role": "user", "content": user_msg}],
             )
+            # Capturar usage (puede no existir en mocks viejos; ser defensivo)
+            usage = getattr(resp, "usage", None)
+            tokens_in = int(getattr(usage, "input_tokens", 0) or 0)
+            tokens_out = int(getattr(usage, "output_tokens", 0) or 0)
+            costo_usd = _calcular_costo_usd(tokens_in, tokens_out)
+
             raw = resp.content[0].text.strip()
             if raw.startswith("```"):
                 raw = raw.strip("`")
                 if raw.lower().startswith("json"):
                     raw = raw[4:].strip()
             try:
-                return json.loads(raw)
+                datos = json.loads(raw)
+                if isinstance(datos, dict):
+                    datos["tokens_in"] = tokens_in
+                    datos["tokens_out"] = tokens_out
+                    datos["costo_usd"] = costo_usd
+                return datos
             except json.JSONDecodeError as e:
                 # Respuesta sin JSON parseable — devolver fallback con texto crudo
-                return _fallback(bloque, f"json_parse: {e}", confianza="baja")
+                fb = _fallback(bloque, f"json_parse: {e}", confianza="baja")
+                # En este caso sí hubo consumo de tokens — reportarlo.
+                fb["tokens_in"] = tokens_in
+                fb["tokens_out"] = tokens_out
+                fb["costo_usd"] = costo_usd
+                return fb
 
         except BadRequestError as e:
             # Error definitivo en la request (no tiene sentido reintentar)
@@ -173,6 +203,9 @@ def enriquecer(coincidencias: list[Coincidencia], progress_cb=None) -> list[dict
             "tipo_acuerdo": datos.get("tipo_acuerdo", ""),
             "confianza": datos.get("confianza", "media"),
             "error_ia": datos.get("error", ""),
+            "tokens_in": int(datos.get("tokens_in", 0) or 0),
+            "tokens_out": int(datos.get("tokens_out", 0) or 0),
+            "costo_usd": float(datos.get("costo_usd", 0.0) or 0.0),
         })
         if progress_cb is not None:
             try:
@@ -180,3 +213,19 @@ def enriquecer(coincidencias: list[Coincidencia], progress_cb=None) -> list[dict
             except Exception:
                 pass
     return salidas
+
+
+def costo_total(items: list[dict]) -> dict:
+    """Agrega tokens y costo USD a partir de la lista que devuelve `enriquecer()`.
+
+    Compatibilidad: no rompe la API de `enriquecer()`; se llama aparte desde
+    `app.py` para alimentar `registrar_run(..., costo_usd=...)`.
+    """
+    return {
+        "tokens_in": sum(int(i.get("tokens_in", 0) or 0) for i in items),
+        "tokens_out": sum(int(i.get("tokens_out", 0) or 0) for i in items),
+        "costo_usd": round(
+            sum(float(i.get("costo_usd", 0.0) or 0.0) for i in items), 5
+        ),
+        "errores": sum(1 for i in items if i.get("confianza") == "error_api"),
+    }
