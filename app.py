@@ -244,7 +244,21 @@ if st.button("Procesar", type="primary", disabled=not (boletin_file and listado_
 
             if not omitir_ia and validadas:
                 st.write(f"Transcribiendo síntesis con Claude ({len(validadas)} bloques)…")
-                enriquecidas = enriquecer(validadas)
+                progreso_ia = st.empty()
+                def _cb(idx, total, errores):
+                    progreso_ia.write(
+                        f"  → {idx}/{total} transcritos"
+                        + (f" — ⚠️ {errores} con error IA" if errores else "")
+                    )
+                enriquecidas = enriquecer(validadas, progress_cb=_cb)
+                errores_ia = sum(1 for e in enriquecidas if e.get("confianza") == "error_api")
+                if errores_ia:
+                    st.warning(
+                        f"⚠️ {errores_ia}/{len(enriquecidas)} bloques fallaron en la "
+                        "transcripción IA. Esos bloques mostrarán el texto crudo del "
+                        "boletín en lugar de la síntesis. El error específico aparece "
+                        "en el reporte para cada caso."
+                    )
             else:
                 enriquecidas = [{
                     "coincidencia": c,

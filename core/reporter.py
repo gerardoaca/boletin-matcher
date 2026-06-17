@@ -98,6 +98,8 @@ def generar_md(
                 lines.append(f"![Hoja {c.pagina_impresa or c.hoja} — exp {c.expediente}]({item['imagen_hoja']})")
             lines.append(f"- **Ruta de validación:** {c.ruta_validacion} — {c.motivo}")
             lines.append(f"- **Confianza IA:** {item['confianza']}")
+            if item.get("error_ia"):
+                lines.append(f"- **⚠️ Error IA:** `{item['error_ia']}`")
             lines.append(f"- **Hash bloque:** `{_hash_bloque(c.bloque_texto)}`")
             lines.append(f"- **Fila listado:** {c.fila_listado}")
             lines.append("")
